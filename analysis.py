@@ -111,42 +111,18 @@ def bootstrapManifoldMetrics(data, locs, ranks, timeSteps, network, nReps, nSamp
     DM = {timeStep : {(rank, loc) : np.array(dims[timeStep][(rank, loc)]) for rank in ranks for loc in locs} for timeStep in timeSteps}
 
     return αM, rM, DM
-#%% 
-from numba.types import Tuple, int64, float64  
-from numba import types
-from numba.typed import Dict  
-import numba
-from numba.experimental import jitclass
-key_ty = Tuple((int64, int64)) 
-
-inner_dict_type = types.DictType(key_ty, types.float64[:,:])
-@jitclass([('dt', types.int32),
-            ('last_index_tick', types.DictType(types.int32, types.DictType(key_ty,types.float64[:,:])))])
-class TickFeature:
-    def __init__(self, dt: int):
-        self.dt = dt
-        #self.last_index_tick = defaultdict(dict)
-        #tmp = numba.typed.Dict.empty(key_type=types.unicode_type, value_type=types.int64)
-        self.last_index_tick = numba.typed.Dict.empty(
-            key_type= types.int32,
-            value_type=inner_dict_type
-        )
-        # self.init_index_tick()
-
-
-test = TickFeature(4)
 #%% Run analysis 
 # Load activations & Reshape Data
-fpath = os.getcwd() + '/results/seq3_activations.pkl'
+fpath = os.getcwd() + '/results/seq2_frame_rep2_activations.pkl'
 with open(fpath, 'rb') as f:
     data = pickle.load(f)
     
 locs = [1,2,3,4]
-ranks = [1,2,3]
-timeSteps = [1,2,3,4]
-nReps = 100
+ranks = [1,2]
+timeSteps = [1,2,3,4,5,6,7,8]
+nReps = 20
 nSamples = 100
-network = '4tRNNSeq3'
+network = '8tRNNSeq2'
 manifoldDict = reshapeData(data, locs, ranks, timeSteps)
 αM, rM, DM = bootstrapManifoldMetrics(manifoldDict, locs, ranks, timeSteps,network, nReps, nSamples)
 
@@ -160,14 +136,45 @@ with open(f'manifoldMetrics_{network}.pkl', 'wb') as file:
 # Load manifold metrics
 network = '4tRNNSeq2'
 with open(f'manifoldMetrics_{network}.pkl', 'rb') as file:
-    manifoldMetrics = pickle.load(file)
+    αM, rM, DM = pickle.load(file)
+    
+# Convert dictionaries to DF
+def convertDictToDF(metricDict):
+    
+    df = pd.DataFrame.from_records(
+        [
+            (level1, level2, level3, leaf)
+            for level1, level2_dict in metricDict.items()
+            for (level2, level3), leaf in level2_dict.items()
+        ],
+        columns=['TimeStep', 'Rank', 'Loc', 'value']
+    )
+    df = df.explode('value').reset_index(drop=True)
+    return df
 
-# Convert dicts to dataframe
-αM = pd.DataFrame.from_records(manifoldMetrics[0], orient = 'index')
-rM = pd.DataFrame.from_dict(manifoldMetrics[1], orient = 'index')
-DM = pd.DataFrame.from_dict(manifoldMetrics[2], orient = 'index')
+αM = convertDictToDF(αM)
+rM = convertDictToDF(rM)
+DM = convertDictToDF(DM)
 
-#%% Plot first ten activations 
+metrics = pd.merge(αM, rM, on = ['TimeStep', 'Rank', 'Loc'], suffixes = ('α', 'r'))
+metrics = pd.merge(metrics, DM, on = ['TimeStep', 'Rank', 'Loc'])
+#%% Plot Metrics 
+
+fig, ax = plt.subplots(1,3, figsize = (15,5))
+
+sns.lineplot(x = 'TimeStep', y = 'value', hue = 'Loc', style = 'Rank', label = 'αM', data = αM, ax = ax[0])
+sns.lineplot(x = 'TimeStep', y = 'value', hue = 'Loc', style = 'Rank', label = 'RM', data = rM, ax = ax[1])
+sns.lineplot(x = 'TimeStep', y = 'value', hue = 'Loc', style = 'Rank', label = 'DM', data = DM, ax = ax[2])
+
+
+# for ax in ax:
+    # plt.xticks(np.arange(0, 4, 1))
+    # ax.set_xticklabels(['1', '2', '3', '4'])
+       
+#%%
+
+#%% Garbage Plots 
+# Plot first ten activations 
 
 g,ax = plt.subplots()
 
@@ -175,17 +182,3 @@ plt.plot(activations[0][:,:10])
 plt.xticks(np.arange(0, 4, 1))
 ax.set_xticklabels(['1', '2', '3', '4'])
 plt.legend()
-
-
-#%% Plot Metrics 
-
-fig, ax = plt.subplots(1,3)
-
-sns.lineplot(αM, ax = ax[0])
-sns.lineplot(rM, ax = ax[1])
-sns.lineplot(DM, ax = ax[2])
-
-plt.xticks(np.arange(0, 4, 1))
-ax.set_xticklabels(['1', '2', '3', '4'])
-
-#%%
