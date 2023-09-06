@@ -21,6 +21,7 @@ from pymanopt.optimizers import ConjugateGradient
 import pickle5 as pickle
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch
 
 # Try to import manifold analysis code locally 
 import sys
@@ -29,38 +30,60 @@ sys.path.append(os.getcwd())
 from manana import manifold_analysis_AC as ma
 
 
-#%% Load activations 
+#%% Load activations & Reshape Data
 fpath = os.getcwd() + '/results/activations.pkl'
 with open(fpath, 'rb') as f:
     data = pickle.load(f)
-    activations = data['activation']
-#%%
 
-# Reshape activations into list of manifolds 
+# Change correct action from tensor to list 
+# Assuming the last element in the list is the correct location for that rank 
+# Convert Tensor to List
+data.corrected_action = data.corrected_action.apply(lambda x : x.tolist())
+# Extract Correct Location for each rank
 locs = [1,2, 3, 4]
 ranks = [1,2]
+timeSteps = [1,2,3,4]
+numRanks = len(ranks)
+numLocs = len(locs)
+numTimeSteps = len(timeSteps)
 
-actExpand = np.dstack(activations)
+for rank in range(numRanks):
+    data[f'rank{rank+1}Cor'] = data.corrected_action.apply(lambda x : x[rank][-1])
+
+# Nested Dict, Time step : Rank, Location : Activations
+manifoldDict = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
+for rank in ranks:
+    for loc in locs:
+        # Extract activations for each rank and location
+        activations = data.loc[data[f'rank{rank}Cor'] == loc].activation
+        # Concatenate activations into 3D array
+        activations = np.dstack(activations)
+        for timeStep in timeSteps:
+            # Extract activations for each time step
+            activationsTime = activations[timeStep-1, :, :]
+            # Append activations to dictionary 
+            manifoldDict[timeStep][(rank, loc)] = activationsTime
 
 # Parameters for manifold analysis
 kappa = 0 
 n_t = 100
-manifolds =  [actExpand[i,:,:] for i in range(0,4)]
+# Turn dict into list, order of dict w.r.t keys should be time, rank, location
+# Not sure if it makes sense to run analysis on all manifolds at once
+# or to do it for each time step individually 
 
+# Num of manifolds = num of time steps * num of ranks * num of locations
+manifolds = [manifoldDict[time][(rank,loc)] for time in manifoldDict.keys() for (rank, loc) in manifoldDict[time].keys()]
 
+            
 # Initialize dictionaries for storing manifold metrics
-capacities = {(rank, loc) : [] for rank in ranks for loc in locs}
-radii = {(rank, loc) : [] for rank in ranks for loc in locs}
-dims = {(rank, loc) : [] for rank in ranks for loc in locs}
-
+capacities = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
+radii = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
+dims = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
 # Parameters for bootstrap 
 nReps = 100
-nSamples = 150
+nSamples = 5
 rng = np.random.default_rng()
 
-αM = []
-rM = []
-DM = [] 
 
 for i in range(nReps):
     #Subsample trials for each manifold 
@@ -72,11 +95,30 @@ for i in range(nReps):
         subManifolds.append(subSample)
         
     αSub, rSub, DSub = ma.manifold_analysis(subManifolds, kappa, n_t, t_vecs=None, n_reps=10)
-    
-    αM.append(αSub)
-    rM.append(rSub)
-    DM.append(DSub)
+    manifoldNum = 0 
+    for timeStep in manifoldDict.keys():
+        for (rank, loc) in manifoldDict[timeStep].keys():
+            capacities[timeStep][(rank, loc)].append(αSub[manifoldNum])
+            radii[timeStep][(rank, loc)].append(rSub[manifoldNum])
+            dims[timeStep][(rank, loc)].append(DSub[manifoldNum])
+            
+            # increment counter for manifold number in list
+            manifoldNum += 1
 
+# Take average across bootstrap samples
+         
+αM = {timeStep : {(rank, loc) : capacities[timeStep][(rank, loc)].mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
+rM = {timeStep : {(rank, loc) : radii[timeStep][(rank, loc)].mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
+DM = {timeStep : {(rank, loc) : dims[timeStep][(rank, loc)].mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
+
+
+
+# Save manifold metrics
+manifoldMetrics = [αM, rM, DM]
+network = '4tRNN'
+with open(f'manifoldMetrics_{network}.pkl', 'wb') as file:
+    pickle.dump(manifoldMetrics, file)
+    
 #%% Plot first ten activations 
 
 g,ax = plt.subplots()
