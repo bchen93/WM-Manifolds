@@ -70,20 +70,18 @@ n_t = 100
 # Turn dict into list, order of dict w.r.t keys should be time, rank, location
 # Not sure if it makes sense to run analysis on all manifolds at once
 # or to do it for each time step individually 
-
 # Num of manifolds = num of time steps * num of ranks * num of locations
 manifolds = [manifoldDict[time][(rank,loc)] for time in manifoldDict.keys() for (rank, loc) in manifoldDict[time].keys()]
 
             
+# Parameters for bootstrap 
+nReps = 100
+nSamples = 50
+rng = np.random.default_rng()
 # Initialize dictionaries for storing manifold metrics
 capacities = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
 radii = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
 dims = {timeStep : {(rank, loc) : [] for rank in ranks for loc in locs} for timeStep in timeSteps}
-# Parameters for bootstrap 
-nReps = 100
-nSamples = 5
-rng = np.random.default_rng()
-
 
 for i in range(nReps):
     #Subsample trials for each manifold 
@@ -106,12 +104,9 @@ for i in range(nReps):
             manifoldNum += 1
 
 # Take average across bootstrap samples
-         
-αM = {timeStep : {(rank, loc) : capacities[timeStep][(rank, loc)].mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
-rM = {timeStep : {(rank, loc) : radii[timeStep][(rank, loc)].mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
-DM = {timeStep : {(rank, loc) : dims[timeStep][(rank, loc)].mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
-
-
+αM = {timeStep : {(rank, loc) : np.array(capacities[timeStep][(rank, loc)]).mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
+rM = {timeStep : {(rank, loc) : np.array(radii[timeStep][(rank, loc)]).mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
+DM = {timeStep : {(rank, loc) : np.array(dims[timeStep][(rank, loc)]).mean() for rank in ranks for loc in locs} for timeStep in timeSteps}
 
 # Save manifold metrics
 manifoldMetrics = [αM, rM, DM]
